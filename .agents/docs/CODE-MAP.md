@@ -1,6 +1,6 @@
 # 代码地图
 
-`server/`（除 `internal/mcp/`）与 `scripts/` 已落地，其余为「规划」。
+`server/` 与 `scripts/` 已落地，其余为「规划」。
 
 ## 树
 
@@ -10,7 +10,7 @@ docs-mcp/
 │   ├── cmd/server/           # main：装配配置、存储、REST 与 MCP handler，起 HTTP 服务
 │   └── internal/
 │       ├── api/              # REST handler 与路由（/api/v1/），推送 Bearer 鉴权
-│       ├── mcp/              # 【规划】MCP streamable HTTP 端点与 tools 定义
+│       ├── mcp/              # MCP streamable HTTP 端点与 tools 定义
 │       ├── ingest/           # 接收推送：frontmatter 解析、整批校验、整库替换写库
 │       └── search/           # SQLite FTS5 索引与全文检索
 ├── scripts/

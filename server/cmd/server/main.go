@@ -1,5 +1,5 @@
-// Command server 是 docs-mcp 的单二进制服务：装配环境变量配置、SQLite 存储
-// 与 REST handler，起 HTTP 服务。
+// Command server 是 docs-mcp 的单二进制服务：装配环境变量配置、SQLite 存储、
+// REST 与 MCP handler，起 HTTP 服务。
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/hodgewen/docs-mcp/server/internal/api"
+	"github.com/hodgewen/docs-mcp/server/internal/mcp"
 	"github.com/hodgewen/docs-mcp/server/internal/search"
 )
 
@@ -42,9 +43,14 @@ func run() error {
 	}
 	defer store.Close()
 
+	// REST 与 MCP 同端口：/mcp 走 streamable HTTP，其余归 REST 路由。
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcp.NewHandler(store))
+	mux.Handle("/", api.NewServer(store, pushToken))
+
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: api.NewServer(store, pushToken),
+		Handler: mux,
 	}
 	slog.Info("HTTP 服务启动", "addr", addr, "db", dbPath)
 	return srv.ListenAndServe()
