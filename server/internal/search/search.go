@@ -16,10 +16,10 @@ const defaultLimit = 20
 
 // Result 是一条检索命中，Snippet 为 FTS5 高亮片段，命中词以 <mark> 标记。
 type Result struct {
-	Library string
-	Path    string
-	Title   string
-	Snippet string
+	Library string `json:"library"`
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
 }
 
 // Search 在 FTS5 索引中检索 query；library 非空时限定单库，缺省跨库。

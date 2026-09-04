@@ -7,10 +7,10 @@ import (
 
 // Document 是一篇待索引的文档，Path 在库内唯一。
 type Document struct {
-	Path        string
-	Title       string
-	Description string
-	Content     string
+	Path        string `json:"path"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
 }
 
 // ReplaceLibrary 以 docs 整库替换 slug 库：事务内删除该库旧文档（触发器同步清索引）、
