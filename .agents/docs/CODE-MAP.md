@@ -15,6 +15,8 @@ docs-mcp/
 │       └── search/           # SQLite FTS5 索引与全文检索
 ├── scripts/
 │   └── push-docs.mjs         # 零依赖 Node 推送脚本，用户复制到库仓库使用
+├── skills/
+│   └── docs-mcp/             # 随库分发的接入技能：维护者推送/文档标准 + 使用者接 MCP；内含脚本副本
 ├── .github/workflows/        # GitHub Actions：测试 + v* tag 构建四平台二进制发 Releases
 └── .agents/                  # 工程协作（docs/scripts 入库，cooking 忽略）
 ```
@@ -29,6 +31,7 @@ docs-mcp/
 | 推送接收 | `server/internal/ingest/` | frontmatter 解析、整批校验、整库替换写入 | `server/internal/ingest/` |
 | 索引与检索 | `server/internal/search/` | SQLite FTS5 建索引、bm25 + 标题加权、高亮片段 | `server/internal/search/` |
 | 推送脚本 | `scripts/push-docs.mjs` | 扫描库内文档，HTTP 全量推送到服务端 | `scripts/push-docs.mjs` |
+| docs-mcp 技能 | `skills/docs-mcp/` | 双视角接入技能：维护者装脚本/引导 .env/文档标准/执行推送，使用者检测并引导接入 MCP；脚本副本须与 `scripts/push-docs.mjs` 同步 | `skills/docs-mcp/SKILL.md` |
 
 ## 依赖
 
