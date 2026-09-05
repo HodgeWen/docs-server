@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "build-lib-skill": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/tools/build-lib-skill/SKILL.md",
+      "computedHash": "6cb10a5bbab395b2f1d9ee114f9cee029369e7d5ce6e17219422e15a322ab3ed"
+    },
+    "git-commit": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/tools/git-commit/SKILL.md",
+      "computedHash": "15db67e52893916d0e7e49634b6f4fb5ee3cf0fddab15d0df76cedcda9b77089"
+    },
+    "go": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/langs/go/SKILL.md",
+      "computedHash": "89946c6d0e0ca0c066a8af01cdfc2618784c62d2a1cdeb383b61f1340f8892ba"
+    }
+  }
+}
