@@ -18,9 +18,9 @@ docs-mcp 面向企业内部：库维护者把库文档推送到中心文档服�
 
 - **文档服务（Go，`server/`）**：唯一带状态、唯一部署的部分，单进程同时提供：
   - REST API（`/api/v1/`）：推送（单令牌 Bearer 鉴权、整库全量覆盖）、搜索、取文档、列库；读路径免鉴权。标准库 `net/http`，零框架依赖。
-  - MCP 端点（streamable HTTP）：官方 MCP Go SDK，暴露 search / get_document / list_libraries。
+  - MCP 端点（`/mcp`，streamable HTTP）：官方 MCP Go SDK，暴露 search / get_document / list_libraries。
   - SQLite FTS5 全文索引：bm25 排序、标题列加权、高亮片段、按库过滤；纯 Go 驱动（modernc.org/sqlite），编译为静态二进制。
-  - 部署：多阶段 Dockerfile 发布 GHCR；GitHub Actions CI。
+  - 部署：CGO 关闭的单文件静态二进制，拷到服务器直接运行；GitHub Actions CI 在 `v*` tag 构建 linux/darwin × amd64/arm64 发 Releases。
 - **推送脚本（Node.js，`scripts/push-docs.mjs`）**：零依赖单文件脚本，随本仓库源码分发，用户复制到库仓库使用；环境变量配置（服务端地址、令牌、库 slug）；解析 frontmatter，全量推送。
 
 进程边界：推送脚本 →（HTTP）→ 文档服务 ←（streamable HTTP MCP）← MCP client（使用者本机编辑器宿主）。
@@ -36,10 +36,8 @@ docs-mcp 面向企业内部：库维护者把库文档推送到中心文档服�
 | 数据 | SQLite FTS5（服务内嵌） | 纯 Go 驱动 modernc.org/sqlite |
 | 构建 / 包管理 | Go modules（`server/`） | 单模块 |
 | 测试 | go test | 核心逻辑必须有单测 |
-| 部署 | 静态二进制 + Docker（GHCR）；GitHub Actions CI | 推送脚本随源码分发 |
+| 部署 | 单文件静态二进制（CGO 关闭）；GitHub Actions CI 在 `v*` tag 发 Releases | 推送脚本随源码分发 |
 
 ## 未决
 
-- MCP Go SDK 的 module 版本与 MCP 端点路径（spec 定）。
-- frontmatter 字段集（title/description 之外是否还收其它字段）。
-- 镜像 tag 策略与 GHCR 仓库名。
+- 无
