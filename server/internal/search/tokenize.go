@@ -84,6 +84,12 @@ func tokenize(text string) []string {
 	return tokens
 }
 
+// indexText 把原始文本转成写入 FTS 索引的预分词文本：token 以空格连接，
+// unicode61 会把每个 token 视为独立词元。
+func indexText(text string) string {
+	return strings.Join(tokenize(text), " ")
+}
+
 // matchQuery 把用户查询转成安全的 FTS5 MATCH 表达式：按空白分词，多词以 AND
 // 连接；每个词内按 CJK 段 / 整词段拆成加引号的短语（CJK 段用相邻二元组短语，
 // 与索引 token 对齐），引号按 FTS5 规则双写转义。空查询或纯标点查询返回空串。

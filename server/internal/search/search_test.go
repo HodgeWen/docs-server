@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -191,6 +192,166 @@ func TestSearchQuerySanitization(t *testing.T) {
 	}
 	if results := mustSearch(t, s, `full "text" (search)`, ""); len(results) != 1 {
 		t.Errorf("含特殊字符查询不应报错且按词匹配，实际 %+v", results)
+	}
+}
+
+func TestSearchChinese(t *testing.T) {
+	s, _ := openTestStore(t)
+	content := "本教程帮助快速开始并返回高亮片段"
+	mustReplace(t, s, "alpha", []Document{
+		{Path: "guide.md", Title: "入门指南", Description: "新手教程", Content: content},
+		{Path: "other.md", Title: "进阶参考", Content: "只提到高亮二字"},
+	})
+
+	t.Run("中文子串命中", func(t *testing.T) {
+		results := mustSearch(t, s, "高亮", "")
+		if len(results) != 2 {
+			t.Fatalf("q=高亮 期望 2 条结果，实际 %d", len(results))
+		}
+	})
+
+	t.Run("中文整词仍命中", func(t *testing.T) {
+		results := mustSearch(t, s, "快速开始", "")
+		if len(results) != 1 || results[0].Path != "guide.md" {
+			t.Fatalf("q=快速开始 结果不符: %+v", results)
+		}
+	})
+
+	t.Run("查询词以连续 mark 完整包裹", func(t *testing.T) {
+		results := mustSearch(t, s, "高亮", "alpha")
+		var snippet string
+		for _, r := range results {
+			if r.Path == "guide.md" {
+				snippet = r.Snippet
+			}
+		}
+		if !strings.Contains(snippet, "<mark>高亮</mark>") {
+			t.Errorf("片段未完整包裹查询词: %q", snippet)
+		}
+		if strings.Contains(snippet, "<mark>高</mark>") || strings.Contains(snippet, "<mark>亮</mark>") {
+			t.Errorf("查询词被拆成单字标记: %q", snippet)
+		}
+	})
+
+	t.Run("片段去标记与省略号后为原文连续子串", func(t *testing.T) {
+		results := mustSearch(t, s, "高亮", "alpha")
+		for _, r := range results {
+			if r.Path != "guide.md" {
+				continue
+			}
+			if stripped := stripSnippet(r.Snippet); !strings.Contains(content, stripped) {
+				t.Errorf("去标记后 %q 不是原文 %q 的连续子串", stripped, content)
+			}
+		}
+	})
+
+	t.Run("多词 AND", func(t *testing.T) {
+		results := mustSearch(t, s, "高亮 片段", "")
+		if len(results) != 1 || results[0].Path != "guide.md" {
+			t.Fatalf("q=高亮 片段 应只命中 guide.md，实际 %+v", results)
+		}
+	})
+
+	t.Run("特殊字符查询不报错", func(t *testing.T) {
+		if results := mustSearch(t, s, `高亮 "片段"`, ""); len(results) != 1 {
+			t.Errorf("含引号查询应命中 1 条，实际 %+v", results)
+		}
+		if results := mustSearch(t, s, "（）", ""); len(results) != 0 {
+			t.Errorf("纯标点查询应无结果，实际 %+v", results)
+		}
+	})
+}
+
+func TestUpgradeFrom0001(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	// 以 0001 schema 建库并写入含中文的文档，模拟旧版库。
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("打开旧版库: %v", err)
+	}
+	schema0001, err := migrationsFS.ReadFile("migrations/0001_init.sql")
+	if err != nil {
+		t.Fatalf("读取 0001 迁移: %v", err)
+	}
+	stmts := []string{
+		string(schema0001),
+		`CREATE TABLE schema_migrations (
+			version TEXT PRIMARY KEY,
+			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO schema_migrations (version) VALUES ('0001_init.sql')`,
+		`INSERT INTO libraries (slug) VALUES ('alpha')`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("建旧版库: %v", err)
+		}
+	}
+	content := "旧版写入的正文包含高亮片段四个字"
+	if _, err := db.Exec(
+		`INSERT INTO documents (library_id, path, title, description, content)
+		 VALUES (1, 'guide.md', '入门指南', '新手教程', ?)`, content); err != nil {
+		t.Fatalf("写入旧版文档: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("关闭旧版库: %v", err)
+	}
+
+	// 新版 Open 应用 0002 迁移并重建索引，中文子串查询直接命中既有文档。
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("升级 Open: %v", err)
+	}
+	results := mustSearch(t, s, "高亮", "")
+	if len(results) != 1 || results[0].Path != "guide.md" {
+		t.Fatalf("升级后 q=高亮 应命中既有文档，实际 %+v", results)
+	}
+	if !strings.Contains(results[0].Snippet, "<mark>高亮</mark>") {
+		t.Errorf("升级后片段未完整包裹查询词: %q", results[0].Snippet)
+	}
+
+	// 迁移重建的索引文本与 Go 写入路径的预分词结果一致（空白归一后相同）。
+	var indexed string
+	if err := s.db.QueryRow(`SELECT content FROM documents_fts`).Scan(&indexed); err != nil {
+		t.Fatalf("读取重建索引: %v", err)
+	}
+	if got, want := strings.Join(strings.Fields(indexed), " "), indexText(content); got != want {
+		t.Errorf("重建索引文本 = %q，期望 %q", got, want)
+	}
+
+	// get_document 取回的全文与元数据不变。
+	d, err := s.GetDocument(context.Background(), "alpha", "guide.md")
+	if err != nil {
+		t.Fatalf("升级后取文档: %v", err)
+	}
+	if d.Path != "guide.md" || d.Title != "入门指南" || d.Description != "新手教程" || d.Content != content {
+		t.Errorf("升级后文档不符: %+v", d)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// 重复 Open 幂等：迁移记录不重复，检索与取文档结果不变。
+	reopened, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("重复 Open: %v", err)
+	}
+	defer reopened.Close()
+	var migrations int
+	if err := reopened.db.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = '0002_fts5_zh_tokenizer.sql'`).Scan(&migrations); err != nil {
+		t.Fatalf("查询迁移记录: %v", err)
+	}
+	if migrations != 1 {
+		t.Errorf("0002 迁移记录期望 1 条，实际 %d", migrations)
+	}
+	if results := mustSearch(t, reopened, "高亮", ""); len(results) != 1 {
+		t.Errorf("重开后 q=高亮 期望 1 条，实际 %+v", results)
+	}
+	d2, err := reopened.GetDocument(context.Background(), "alpha", "guide.md")
+	if err != nil || d2 != d {
+		t.Errorf("重开后文档不符: %+v, err=%v", d2, err)
 	}
 }
 

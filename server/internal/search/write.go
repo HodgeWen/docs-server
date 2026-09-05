@@ -13,8 +13,8 @@ type Document struct {
 	Content     string `json:"content"`
 }
 
-// ReplaceLibrary 以 docs 整库替换 slug 库：事务内删除该库旧文档（触发器同步清索引）、
-// 写入新文档并更新 FTS 索引；任一步失败整体回滚，库内容不变。
+// ReplaceLibrary 以 docs 整库替换 slug 库：事务内删除该库旧文档及其 FTS 索引、
+// 写入新文档并把经 indexText 预分词的文本写入索引；任一步失败整体回滚，库内容不变。
 func (s *Store) ReplaceLibrary(ctx context.Context, slug string, docs []Document) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -32,21 +32,36 @@ func (s *Store) ReplaceLibrary(ctx context.Context, slug string, docs []Document
 		return fmt.Errorf("查询库 %q: %w", slug, err)
 	}
 	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM documents_fts WHERE rowid IN (SELECT id FROM documents WHERE library_id = ?)`, libraryID); err != nil {
+		return fmt.Errorf("清除库 %q 旧索引: %w", slug, err)
+	}
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM documents WHERE library_id = ?`, libraryID); err != nil {
 		return fmt.Errorf("清除库 %q 旧文档: %w", slug, err)
 	}
 
-	stmt, err := tx.PrepareContext(ctx, `
+	docStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO documents (library_id, path, title, description, content)
-		VALUES (?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?) RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("准备写入语句: %w", err)
 	}
-	defer stmt.Close()
+	defer docStmt.Close()
+	ftsStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO documents_fts (rowid, title, description, content)
+		VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("准备索引语句: %w", err)
+	}
+	defer ftsStmt.Close()
 
 	for _, d := range docs {
-		if _, err := stmt.ExecContext(ctx, libraryID, d.Path, d.Title, d.Description, d.Content); err != nil {
+		var docID int64
+		if err := docStmt.QueryRowContext(ctx, libraryID, d.Path, d.Title, d.Description, d.Content).Scan(&docID); err != nil {
 			return fmt.Errorf("写入文档 %q: %w", d.Path, err)
+		}
+		if _, err := ftsStmt.ExecContext(ctx, docID, indexText(d.Title), indexText(d.Description), indexText(d.Content)); err != nil {
+			return fmt.Errorf("写入文档 %q 索引: %w", d.Path, err)
 		}
 	}
 

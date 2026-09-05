@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // ErrNotFound 表示所查文档不存在，供上层映射为 404 语义。
@@ -14,7 +13,8 @@ var ErrNotFound = errors.New("文档不存在")
 // defaultLimit 是 limit 非法（<= 0）时的检索条数上限。
 const defaultLimit = 20
 
-// Result 是一条检索命中，Snippet 为 FTS5 高亮片段，命中词以 <mark> 标记。
+// Result 是一条检索命中，Snippet 为经 normalizeSnippet 归一化的高亮片段，
+// 命中词以 <mark> 连续包裹。
 type Result struct {
 	Library string `json:"library"`
 	Path    string `json:"path"`
@@ -23,9 +23,10 @@ type Result struct {
 }
 
 // Search 在 FTS5 索引中检索 query；library 非空时限定单库，缺省跨库。
+// query 经 matchQuery 转成 MATCH 表达式（中文词按二元组短语匹配，多词 AND）。
 // 结果按 bm25 排序且 title 列加权，最多返回 limit 条。
 func (s *Store) Search(ctx context.Context, query string, library string, limit int) ([]Result, error) {
-	match := ftsQuery(query)
+	match := matchQuery(query)
 	if match == "" {
 		return nil, nil
 	}
@@ -61,6 +62,7 @@ func (s *Store) Search(ctx context.Context, query string, library string, limit 
 		if err := rows.Scan(&r.Library, &r.Path, &r.Title, &r.Snippet); err != nil {
 			return nil, fmt.Errorf("读取检索结果: %w", err)
 		}
+		r.Snippet = normalizeSnippet(r.Snippet)
 		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -107,14 +109,4 @@ func (s *Store) ListLibraries(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("遍历库列表: %w", err)
 	}
 	return slugs, nil
-}
-
-// ftsQuery 把用户输入转成安全的 FTS5 MATCH 表达式：按空白分词、逐词加引号后以 AND 连接，
-// 避免输入中的引号、括号等字符触发 FTS5 语法错误。
-func ftsQuery(query string) string {
-	terms := strings.Fields(query)
-	for i, term := range terms {
-		terms[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
-	}
-	return strings.Join(terms, " AND ")
 }
