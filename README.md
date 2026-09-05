@@ -22,9 +22,9 @@ push-docs.mjs ──HTTP PUT──▶ docs-mcp（Go 单二进制） ◀──str
 从 [GitHub Releases](https://github.com/HodgeWen/docs-mcp/releases) 下载对应平台的静态二进制（linux/darwin × amd64/arm64），放到服务器任意目录：
 
 ```bash
-# 例：Linux amd64
-curl -LO https://github.com/HodgeWen/docs-mcp/releases/latest/download/docs-mcp-linux-amd64
-chmod +x docs-mcp-linux-amd64
+# 例：Linux x64
+curl -LO https://github.com/HodgeWen/docs-mcp/releases/latest/download/docs-mcp-linux-x64
+chmod +x docs-mcp-linux-x64
 ```
 
 ### 2. 配置环境变量
@@ -41,7 +41,7 @@ chmod +x docs-mcp-linux-amd64
 DOCS_MCP_DB_PATH=/var/lib/docs-mcp/docs.db \
 DOCS_MCP_PUSH_TOKEN=$(openssl rand -hex 32) \
 DOCS_MCP_ADDR=:8080 \
-./docs-mcp-linux-amd64
+./docs-mcp-linux-x64
 ```
 
 ### 4. systemd 常驻（可选）
@@ -52,7 +52,7 @@ DOCS_MCP_ADDR=:8080 \
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/docs-mcp-linux-amd64
+ExecStart=/usr/local/bin/docs-mcp-linux-x64
 Environment=DOCS_MCP_DB_PATH=/var/lib/docs-mcp/docs.db
 EnvironmentFile=/etc/docs-mcp.env   # 其中放 DOCS_MCP_PUSH_TOKEN=...
 Restart=on-failure
@@ -181,8 +181,8 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）：
 发版流程：合并代码到 main 后，打 tag 并推送即可自动发版：
 
 ```bash
-git tag v0.1.0-beta.1
-git push origin main v0.1.0-beta.1
+git tag v0.1.0-beta.2
+git push origin main v0.1.0-beta.2
 ```
 
 ## License
