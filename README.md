@@ -27,13 +27,32 @@ curl -LO https://github.com/HodgeWen/docs-mcp/releases/latest/download/docs-mcp-
 chmod +x docs-mcp-linux-x64
 ```
 
-### 2. 配置环境变量
+### 2. 配置
+
+配置来源两选一（或混用，优先级：环境变量 > 配置文件 > 默认值）。
+
+**方式 A：环境变量**
 
 | 变量 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `DOCS_MCP_DB_PATH` | 是 | — | SQLite 数据库文件路径（自动建库建索引） |
 | `DOCS_MCP_PUSH_TOKEN` | 是 | — | 推送令牌，推送接口 Bearer 鉴权用；读路径免鉴权 |
 | `DOCS_MCP_ADDR` | 否 | `:8080` | HTTP 监听地址 |
+
+**方式 B：YAML 配置文件**
+
+```yaml
+# /etc/docs-mcp.yaml
+addr: ":8080"
+db_path: /var/lib/docs-mcp/docs.db
+push_token: <openssl rand -hex 32 生成的令牌>
+```
+
+用 `-config` 参数或 `DOCS_MCP_CONFIG` 环境变量指定文件路径：
+
+```bash
+./docs-mcp-linux-x64 -config /etc/docs-mcp.yaml
+```
 
 ### 3. 运行
 
