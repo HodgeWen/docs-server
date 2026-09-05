@@ -37,7 +37,7 @@
 
 ## 版本与发布
 
-- server 出静态二进制与 Docker 镜像（GHCR），与仓库 tag 对应。
+- server 出静态二进制（CI 在 `v*` tag 构建发布到 GitHub Releases），与仓库 tag 对应。
 
 ## 明确禁止
 

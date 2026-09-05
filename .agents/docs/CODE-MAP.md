@@ -1,6 +1,6 @@
 # 代码地图
 
-`server/` 与 `scripts/` 已落地，其余为「规划」。
+`server/`、`scripts/` 与部署产物（CI 二进制发布）均已落地。
 
 ## 树
 
@@ -15,8 +15,7 @@ docs-mcp/
 │       └── search/           # SQLite FTS5 索引与全文检索
 ├── scripts/
 │   └── push-docs.mjs         # 零依赖 Node 推送脚本，用户复制到库仓库使用
-├── .github/workflows/        # 【规划】GitHub Actions：测试 + 镜像构建推 GHCR
-├── Dockerfile                # 【规划】多阶段构建服务端静态二进制
+├── .github/workflows/        # GitHub Actions：测试 + v* tag 构建四平台二进制发 Releases
 └── .agents/                  # 工程协作（docs/scripts 入库，cooking 忽略）
 ```
 
