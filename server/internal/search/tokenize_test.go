@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -126,4 +127,170 @@ func TestNormalizeSnippet(t *testing.T) {
 			t.Errorf("%s: 去掉标记与省略号后 %q 不是原文 %q 的连续子串", c.name, stripped, c.original)
 		}
 	}
+}
+
+func TestSplitQueryTerms(t *testing.T) {
+	cases := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{"自然语言整句停用词过滤", "如何在表格中进行行内编辑", []string{"表格", "行内编辑"}},
+		{"虚词的与方位词过滤", "表格中的行内编辑", []string{"表格", "行内编辑"}},
+		{"介词关于与用法", "关于表格编辑器的用法", []string{"表格编辑器", "用法"}},
+		{"普通空格切分词", "表格 行内编辑", []string{"表格", "行内编辑"}},
+		{"英文与数字混排", "UButton size", []string{"UButton", "size"}},
+		{"全停用词安全回退", "如何", []string{"如何"}},
+		{"全助词安全回退", "的", []string{"的"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := splitQueryTerms(c.query)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("splitQueryTerms(%q) = %v，期望 %v", c.query, got, c.want)
+			}
+		})
+	}
+}
+
+func TestMatchQueryOR(t *testing.T) {
+	cases := []struct {
+		name  string
+		query string
+		want  string
+	}{
+		{"2字中文词", "高亮", `"高亮"`},
+		{"多词 OR 连接且长词分解二元组", "表格 行内编辑", `"表格" OR ("行内 内编 编辑" OR "行内" OR "内编" OR "编辑")`},
+		{"自然语言句子经过滤后转 OR", "如何在表格中进行行内编辑", `"表格" OR ("行内 内编 编辑" OR "行内" OR "内编" OR "编辑")`},
+		{"空查询", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := matchQueryOR(c.query)
+			if got != c.want {
+				t.Errorf("matchQueryOR(%q) = %q，期望 %q", c.query, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSectionChunking(t *testing.T) {
+	content := `# UTable 表格
+
+表格组件用于展示数据。
+
+## Props
+
+| 属性 | 说明 |
+| --- | --- |
+| data | 数据源 |
+
+## Events
+
+| 事件 | 说明 |
+| --- | --- |
+| change | 改变 |
+
+## Methods
+
+### reload
+重新加载数据。
+`
+
+	t.Run("提取全部二级标题", func(t *testing.T) {
+		sections := ExtractSections(content)
+		want := []string{"Props", "Events", "Methods"}
+		if !reflect.DeepEqual(sections, want) {
+			t.Errorf("ExtractSections = %v，期望 %v", sections, want)
+		}
+	})
+
+	t.Run("提取指定章节", func(t *testing.T) {
+		sec, sections, err := ExtractSection(content, "Props")
+		if err != nil {
+			t.Fatalf("ExtractSection(Props): %v", err)
+		}
+		if len(sections) != 3 {
+			t.Errorf("可用章节应为 3 个，实际 %d", len(sections))
+		}
+		wantSec := "## Props\n\n| 属性 | 说明 |\n| --- | --- |\n| data | 数据源 |"
+		if strings.TrimSpace(sec) != wantSec {
+			t.Errorf("提取 Props 章节不符:\nGot: %q\nWant: %q", sec, wantSec)
+		}
+	})
+
+	t.Run("提取末尾章节", func(t *testing.T) {
+		sec, _, err := ExtractSection(content, "Methods")
+		if err != nil {
+			t.Fatalf("ExtractSection(Methods): %v", err)
+		}
+		wantSec := "## Methods\n\n### reload\n重新加载数据。"
+		if strings.TrimSpace(sec) != wantSec {
+			t.Errorf("提取 Methods 章节不符:\nGot: %q\nWant: %q", sec, wantSec)
+		}
+	})
+
+	t.Run("忽略大小写与##前缀", func(t *testing.T) {
+		sec, _, err := ExtractSection(content, "## props")
+		if err != nil {
+			t.Fatalf("ExtractSection(## props): %v", err)
+		}
+		if !strings.HasPrefix(sec, "## Props") {
+			t.Errorf("提取结果未以 ## Props 开头: %q", sec)
+		}
+	})
+
+	t.Run("章节不存在返回 ErrSectionNotFound 并携带可用章节", func(t *testing.T) {
+		_, _, err := ExtractSection(content, "Slots")
+		if err == nil {
+			t.Fatal("不存在章节应返回错误")
+		}
+		if !errors.Is(err, ErrSectionNotFound) {
+			t.Errorf("应包含 ErrSectionNotFound，实际 %v", err)
+		}
+		if !strings.Contains(err.Error(), "Props, Events, Methods") {
+			t.Errorf("错误信息未包含可用章节列表: %v", err)
+		}
+	})
+
+	t.Run("空章节名称返回完整内容", func(t *testing.T) {
+		sec, _, err := ExtractSection(content, "")
+		if err != nil {
+			t.Fatalf("ExtractSection empty: %v", err)
+		}
+		if sec != content {
+			t.Errorf("空章节名称应返回完整内容")
+		}
+	})
+
+	t.Run("忽略代码块内部的 ## 注释且保留完整代码块", func(t *testing.T) {
+		docWithCode := `# Title
+
+## Usage
+
+示例代码：
+` + "```bash\n## 这里是 bash 注释\ncurl http://example.com\n```\n" + `
+更多说明。
+
+## Other
+
+其他内容。
+`
+		sections := ExtractSections(docWithCode)
+		want := []string{"Usage", "Other"}
+		if !reflect.DeepEqual(sections, want) {
+			t.Errorf("ExtractSections 应该忽略代码块中的 ## 注释，实际 %v", sections)
+		}
+
+		sec, _, err := ExtractSection(docWithCode, "Usage")
+		if err != nil {
+			t.Fatalf("ExtractSection(Usage): %v", err)
+		}
+		if !strings.Contains(sec, "## 这里是 bash 注释") || !strings.Contains(sec, "更多说明。") {
+			t.Errorf("代码块不应被提前截断，实际内容:\n%s", sec)
+		}
+		if strings.Contains(sec, "## Other") {
+			t.Errorf("不应包含后续章节内容")
+		}
+	})
 }

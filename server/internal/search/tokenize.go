@@ -90,17 +90,132 @@ func indexText(text string) string {
 	return strings.Join(tokenize(text), " ")
 }
 
-// matchQuery 把用户查询转成安全的 FTS5 MATCH 表达式：按空白分词，多词以 AND
-// 连接；每个词内按 CJK 段 / 整词段拆成加引号的短语（CJK 段用相邻二元组短语，
-// 与索引 token 对齐），引号按 FTS5 规则双写转义。空查询或纯标点查询返回空串。
-func matchQuery(query string) string {
+// zhStopWords 是在检索时用于切分和过滤自然语言的通用停用词表。
+var zhStopWords = []string{
+	// 疑问词与辅助短语
+	"如何", "怎么", "怎样", "什么", "哪个", "哪些", "请问", "有没有", "是不是", "能不能", "是否",
+	// 常见动词/副词/连词短语
+	"进行", "关于", "对于", "以及", "并且", "而且", "或者", "及其", "通过", "其中", "可以", "能够", "如果", "虽然", "但是", "这个", "那个", "一个", "没有", "使用",
+}
+
+// zhParticles 是单字助词与语气词，几乎不构成技术实体词。
+var zhParticles = map[rune]bool{
+	'的': true, '了': true, '么': true, '呢': true, '吧': true, '吗': true, '啊': true, '呀': true, '得': true, '地': true,
+}
+
+// cleanCJKChunk 清理 CJK 片段的首尾虚词（如“在表格”->“表格”、“表格中”->“表格”）。
+func cleanCJKChunk(chunk string) string {
+	rs := []rune(chunk)
+	// 前缀 "在" 仅在片段长于 2 时剥离（避免误伤单个字或专有名词）
+	if len(rs) > 2 && rs[0] == '在' {
+		rs = rs[1:]
+	}
+	// 后缀 "中" / "里" / "内" 仅在片段长于 2 时剥离
+	if len(rs) > 2 && (rs[len(rs)-1] == '中' || rs[len(rs)-1] == '里' || rs[len(rs)-1] == '内') {
+		rs = rs[:len(rs)-1]
+	}
+	return string(rs)
+}
+
+// splitQueryTerms 对用户查询进行停用词过滤与切词：
+// 1. 将常见停用词替换为空格，单字助词替换为空格
+// 2. 剥离 CJK 词的首尾常见介词/方位词（在...、...中）
+// 3. 若过滤后为空（如用户只搜“如何”或“的”），安全回退至原始空白切词结果
+func splitQueryTerms(query string) []string {
+	fields := strings.Fields(query)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	filtered := query
+	for _, sw := range zhStopWords {
+		filtered = strings.ReplaceAll(filtered, sw, " ")
+	}
+	var sb strings.Builder
+	for _, r := range filtered {
+		if zhParticles[r] {
+			sb.WriteRune(' ')
+		} else {
+			sb.WriteRune(r)
+		}
+	}
+
+	var terms []string
+	for _, term := range strings.Fields(sb.String()) {
+		cleaned := cleanCJKChunk(term)
+		if strings.TrimSpace(cleaned) != "" {
+			terms = append(terms, cleaned)
+		}
+	}
+
+	if len(terms) == 0 {
+		// 安全回退：如果停用词过滤后没有剩余词，保留原始切词
+		return fields
+	}
+	return terms
+}
+
+// matchQueryAND 把用户查询转成安全严谨的 FTS5 MATCH 表达式：
+// 经 splitQueryTerms 停用词过滤后，多词以 AND 连接；
+// 每个词内按 CJK 段 / 整词段拆成加引号的短语（CJK 段用相邻二元组短语，与索引 token 对齐）。
+func matchQueryAND(query string) string {
+	terms := splitQueryTerms(query)
+	if len(terms) == 0 {
+		return ""
+	}
 	var phrases []string
-	for _, term := range strings.Fields(query) {
+	for _, term := range terms {
 		scanRuns(term,
 			func(rs []rune) { phrases = append(phrases, quote(strings.Join(bigrams(rs), " "))) },
 			func(rs []rune) { phrases = append(phrases, quote(string(rs))) })
 	}
 	return strings.Join(phrases, " AND ")
+}
+
+// matchQuery 是 matchQueryAND 的别名，保持既有调用兼容。
+func matchQuery(query string) string {
+	return matchQueryAND(query)
+}
+
+// matchQueryOR 把用户查询转成宽容的 FTS5 MATCH 表达式：
+// 多词以 OR 连接；对长度 > 2 的 CJK 词，除完整二元组短语外，
+// 补充其构成二元组（如 "行内编辑" -> ("行内 内编 编辑" OR "行内" OR "编辑")），
+// 以便在 AND 失败时能最大程度召回相关文档。
+func matchQueryOR(query string) string {
+	terms := splitQueryTerms(query)
+	if len(terms) == 0 {
+		return ""
+	}
+	var clauses []string
+	for _, term := range terms {
+		scanRuns(term,
+			func(rs []rune) {
+				if len(rs) <= 2 {
+					clauses = append(clauses, quote(strings.Join(bigrams(rs), " ")))
+					return
+				}
+				fullPhrase := quote(strings.Join(bigrams(rs), " "))
+				bgs := bigrams(rs)
+				bgSet := make([]string, 0, len(bgs))
+				seen := make(map[string]bool, len(bgs))
+				for _, bg := range bgs {
+					if !seen[bg] {
+						seen[bg] = true
+						bgSet = append(bgSet, quote(bg))
+					}
+				}
+				if len(bgSet) > 0 {
+					clauses = append(clauses, "("+fullPhrase+" OR "+strings.Join(bgSet, " OR ")+")")
+				} else {
+					clauses = append(clauses, fullPhrase)
+				}
+			},
+			func(rs []rune) { clauses = append(clauses, quote(string(rs))) })
+	}
+	if len(clauses) == 0 {
+		return ""
+	}
+	return strings.Join(clauses, " OR ")
 }
 
 // quote 把一段 token 序列包成 FTS5 短语，内部引号双写转义。

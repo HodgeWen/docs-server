@@ -27,14 +27,52 @@ func (e *ParseError) Unwrap() error {
 	return e.Err
 }
 
-// frontmatter 是可入库的元数据字段集；title/description 之外的字段忽略。
+// stringList 支持从 YAML 序列（[a, b]）或标量（"a, b"）解析字符串列表。
+type stringList []string
+
+func (s *stringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		str := strings.TrimSpace(value.Value)
+		if str == "" {
+			*s = nil
+			return nil
+		}
+		parts := strings.FieldsFunc(str, func(r rune) bool {
+			return r == ',' || r == '，'
+		})
+		var list []string
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				list = append(list, trimmed)
+			}
+		}
+		*s = list
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		for _, item := range value.Content {
+			if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) != "" {
+				list = append(list, strings.TrimSpace(item.Value))
+			}
+		}
+		*s = list
+		return nil
+	default:
+		return nil
+	}
+}
+
+// frontmatter 是可入库的元数据字段集；支持 title、description、aliases 与 keywords。
 type frontmatter struct {
-	Title       string `yaml:"title"`
-	Description string `yaml:"description"`
+	Title       string     `yaml:"title"`
+	Description string     `yaml:"description"`
+	Aliases     stringList `yaml:"aliases"`
+	Keywords    stringList `yaml:"keywords"`
 }
 
 // Parse 解析含 YAML frontmatter 的 Markdown 原文：提取 title（必填）与
-// description（可选），返回去掉 frontmatter 的正文。缺 frontmatter、缺 title
+// description、aliases、keywords（可选），返回去掉 frontmatter 的正文。缺 frontmatter、缺 title
 // 或 YAML 解析失败均返回错误。
 func Parse(content string) (search.Document, error) {
 	meta, body, err := splitFrontmatter(content)
@@ -53,6 +91,8 @@ func Parse(content string) (search.Document, error) {
 	return search.Document{
 		Title:       fm.Title,
 		Description: fm.Description,
+		Keywords:    []string(fm.Keywords),
+		Aliases:     []string(fm.Aliases),
 		Content:     body,
 	}, nil
 }

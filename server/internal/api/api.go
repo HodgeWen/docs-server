@@ -167,19 +167,24 @@ type documentResponse struct {
 	search.Document
 }
 
-// handleGetDocument 处理 GET /api/v1/libraries/{slug}/documents/{path}。
+// handleGetDocument 处理 GET /api/v1/libraries/{slug}/documents/{path}[?section=...]。
 func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	slug, path := r.PathValue("slug"), r.PathValue("path")
-	doc, err := s.store.GetDocument(r.Context(), slug, path)
+	section := r.URL.Query().Get("section")
+	doc, err := s.store.GetDocument(r.Context(), slug, path, section)
 	if errors.Is(err, search.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "文档不存在")
 		return
 	}
+	if errors.Is(err, search.ErrSectionNotFound) {
+		writeError(w, http.StatusNotFound, "section_not_found", err.Error())
+		return
+	}
 	if err != nil {
-		slog.Error("取文档失败", "library", slug, "path", path, "err", err)
+		slog.Error("取文档失败", "library", slug, "path", path, "section", section, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "取文档失败")
 		return
 	}

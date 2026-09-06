@@ -69,6 +69,7 @@ func (h *toolHandlers) search(ctx context.Context, _ *mcpsdk.CallToolRequest, ar
 type getDocumentArgs struct {
 	Library string `json:"library" jsonschema:"库 slug，必填"`
 	Path    string `json:"path" jsonschema:"文档在库内的相对路径，必填"`
+	Section string `json:"section,omitempty" jsonschema:"指定二级标题章节名称（如 Props、Methods、事件），可选，缺省返回整篇文档"`
 }
 
 // documentOutput 与 REST 取文档响应保持同名字段。
@@ -78,7 +79,7 @@ type documentOutput struct {
 }
 
 func (h *toolHandlers) getDocument(ctx context.Context, _ *mcpsdk.CallToolRequest, args getDocumentArgs) (*mcpsdk.CallToolResult, documentOutput, error) {
-	doc, err := h.store.GetDocument(ctx, args.Library, args.Path)
+	doc, err := h.store.GetDocument(ctx, args.Library, args.Path, args.Section)
 	if errors.Is(err, search.ErrNotFound) {
 		return nil, documentOutput{}, fmt.Errorf("文档 %s/%s 不存在", args.Library, args.Path)
 	}

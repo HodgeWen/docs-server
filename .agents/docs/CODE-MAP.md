@@ -29,7 +29,7 @@ docs-mcp/
 | REST API 层 | `server/internal/api/` | 路由、推送 Bearer 鉴权、请求/响应、错误格式 | `server/internal/api/` |
 | MCP 端点 | `server/internal/mcp/` | streamable HTTP 端点，search / get_document / list_libraries tools | `server/internal/mcp/` |
 | 推送接收 | `server/internal/ingest/` | frontmatter 解析、整批校验、整库替换写入 | `server/internal/ingest/` |
-| 索引与检索 | `server/internal/search/` | SQLite FTS5 建索引、bm25 + 标题加权、高亮片段 | `server/internal/search/` |
+| 索引与检索 | `server/internal/search/` | SQLite FTS5 建索引、bm25 标题与别名加权、高亮片段、AND/OR 降级检索、章节切片 | `server/internal/search/` |
 | 推送脚本 | `scripts/push-docs.mjs` | 扫描库内文档，HTTP 全量推送到服务端 | `scripts/push-docs.mjs` |
 | docs-mcp 技能 | `skills/docs-mcp/` | 双视角接入技能：维护者装脚本/引导 .env/文档标准/执行推送，使用者检测并引导接入 MCP；脚本副本须与 `scripts/push-docs.mjs` 同步 | `skills/docs-mcp/SKILL.md` |
 

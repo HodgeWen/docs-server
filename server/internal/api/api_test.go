@@ -262,3 +262,37 @@ func TestUnifiedErrorFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDocumentWithSection(t *testing.T) {
+	s := newTestServer(t)
+	content := "# UTable\n\n说明\n\n## Props\n\n| 属性 | 说明 |\n| --- | --- |\n\n## Events\n\n| 事件 | 说明 |\n"
+	body := goodDoc("table.md", "表格", content)
+	if rec := do(t, s, http.MethodPut, "/api/v1/libraries/alpha/documents", testToken, body); rec.Code != http.StatusOK {
+		t.Fatalf("推送失败: %d", rec.Code)
+	}
+
+	// 提取 Props 章节
+	rec := do(t, s, http.MethodGet, "/api/v1/libraries/alpha/documents/table.md?section=Props", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("提取章节失败: %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		Library string `json:"library"`
+		search.Document
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("解析响应: %v", err)
+	}
+	if !strings.HasPrefix(doc.Content, "## Props") || strings.Contains(doc.Content, "## Events") {
+		t.Errorf("章节切片内容不正确: %q", doc.Content)
+	}
+	if len(doc.Sections) != 2 {
+		t.Errorf("元数据应包含 2 个可用章节，实际 %d", len(doc.Sections))
+	}
+
+	// 章节不存在时返回 404 及 section_not_found
+	rec = do(t, s, http.MethodGet, "/api/v1/libraries/alpha/documents/table.md?section=Methods", "", "")
+	if code := requireError(t, rec, http.StatusNotFound); code != "section_not_found" {
+		t.Errorf("不存在章节错误码应为 section_not_found，实际 %q", code)
+	}
+}

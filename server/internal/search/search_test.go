@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -350,7 +351,7 @@ func TestUpgradeFrom0001(t *testing.T) {
 		t.Errorf("重开后 q=高亮 期望 1 条，实际 %+v", results)
 	}
 	d2, err := reopened.GetDocument(context.Background(), "alpha", "guide.md")
-	if err != nil || d2 != d {
+	if err != nil || !reflect.DeepEqual(d2, d) {
 		t.Errorf("重开后文档不符: %+v, err=%v", d2, err)
 	}
 }
@@ -374,4 +375,120 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if d.Title != "A" {
 		t.Errorf("重开后数据不符: %+v", d)
 	}
+}
+
+func TestSearchANDToORDowngrade(t *testing.T) {
+	s, _ := openTestStore(t)
+	mustReplace(t, s, "alpha", []Document{
+		{Path: "table.md", Title: "表格组件", Description: "展示表格", Content: "表格组件用于数据展示与列表渲染"},
+	})
+
+	// "表格 行内编辑"：文档只有“表格”，没有“行内编辑”。
+	// AND 检索无结果，自动降级为 OR 检索，通过 "表格" 命中并召回 table.md。
+	results := mustSearch(t, s, "表格 行内编辑", "")
+	if len(results) != 1 || results[0].Path != "table.md" {
+		t.Fatalf("AND->OR 降级应命中 table.md，实际 %+v", results)
+	}
+}
+
+func TestSearchAliasesHighWeight(t *testing.T) {
+	s, _ := openTestStore(t)
+	mustReplace(t, s, "alpha", []Document{
+		{
+			Path:        "content-match.md",
+			Title:       "常规组件",
+			Description: "说明",
+			Content:     "此组件内部实现了行内编辑功能，支持行内编辑操作",
+		},
+		{
+			Path:        "alias-match.md",
+			Title:       "UTableEditor",
+			Description: "高级表格",
+			Aliases:     []string{"行内编辑", "单元格编辑"},
+			Content:     "正文没有这个词",
+		},
+	})
+
+	results := mustSearch(t, s, "行内编辑", "")
+	if len(results) != 2 {
+		t.Fatalf("期望 2 条结果，实际 %d: %+v", len(results), results)
+	}
+	// alias 拥有与 title 同等的高权重（10.0），应排在仅正文命中的文档之前
+	if results[0].Path != "alias-match.md" {
+		t.Errorf("别名命中（权重 10.0）应排第一，实际首位为 %q", results[0].Path)
+	}
+	if results[0].Description != "高级表格" {
+		t.Errorf("Result 应携带 Description，实际 %q", results[0].Description)
+	}
+}
+
+func TestGetDocumentSection(t *testing.T) {
+	s, _ := openTestStore(t)
+	content := `# UTable
+
+基础表格组件
+
+## Props
+
+| 属性 | 说明 |
+| --- | --- |
+| data | 数据源 |
+
+## Events
+
+| 事件 | 说明 |
+| --- | --- |
+| change | 改变时触发 |
+`
+	mustReplace(t, s, "alpha", []Document{
+		{
+			Path:        "table.md",
+			Title:       "UTable",
+			Description: "表格组件",
+			Aliases:     []string{"数据表格"},
+			Keywords:    []string{"grid", "table"},
+			Content:     content,
+		},
+	})
+
+	t.Run("默认返回整篇及解析出的章节列表", func(t *testing.T) {
+		doc, err := s.GetDocument(context.Background(), "alpha", "table.md")
+		if err != nil {
+			t.Fatalf("GetDocument: %v", err)
+		}
+		if doc.Content != content {
+			t.Errorf("正文内容不符")
+		}
+		wantSections := []string{"Props", "Events"}
+		if !reflect.DeepEqual(doc.Sections, wantSections) {
+			t.Errorf("Sections = %v，期望 %v", doc.Sections, wantSections)
+		}
+		if !reflect.DeepEqual(doc.Aliases, []string{"数据表格"}) {
+			t.Errorf("Aliases = %v，期望 [数据表格]", doc.Aliases)
+		}
+		if !reflect.DeepEqual(doc.Keywords, []string{"grid", "table"}) {
+			t.Errorf("Keywords = %v，期望 [grid table]", doc.Keywords)
+		}
+	})
+
+	t.Run("指定章节仅返回章节正文", func(t *testing.T) {
+		doc, err := s.GetDocument(context.Background(), "alpha", "table.md", "Props")
+		if err != nil {
+			t.Fatalf("GetDocument(Props): %v", err)
+		}
+		wantSec := "## Props\n\n| 属性 | 说明 |\n| --- | --- |\n| data | 数据源 |"
+		if strings.TrimSpace(doc.Content) != wantSec {
+			t.Errorf("章节内容不符:\nGot: %q\nWant: %q", doc.Content, wantSec)
+		}
+	})
+
+	t.Run("指定不存在章节返回 ErrSectionNotFound", func(t *testing.T) {
+		_, err := s.GetDocument(context.Background(), "alpha", "table.md", "Methods")
+		if err == nil {
+			t.Fatal("不存在章节应返回错误")
+		}
+		if !errors.Is(err, ErrSectionNotFound) {
+			t.Errorf("应包含 ErrSectionNotFound，实际 %v", err)
+		}
+	})
 }

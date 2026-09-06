@@ -29,6 +29,7 @@ func newTestSession(t *testing.T) (*mcpsdk.ClientSession, *search.Store) {
 		"alpha": {
 			{Path: "guide.md", Title: "入门指南", Description: "上手教程", Content: "sqlite 全文检索教程"},
 			{Path: "api.md", Title: "API 参考", Content: "sqlite 接口说明"},
+			{Path: "component.md", Title: "组件文档", Content: "# 组件\n\n## Props\n\n| 属性 | 说明 |\n\n## Methods\n\n- call()\n"},
 		},
 		"beta": {
 			{Path: "readme.md", Title: "Beta 说明", Content: "sqlite 迁移说明"},
@@ -205,5 +206,26 @@ func TestListLibrariesTool(t *testing.T) {
 	decodeStructured(t, res, &out)
 	if !slices.Equal(out.Libraries, []string{"alpha", "beta"}) {
 		t.Errorf("库列表应为 [alpha beta]，实际 %v", out.Libraries)
+	}
+}
+
+func TestGetDocumentToolWithSection(t *testing.T) {
+	session, _ := newTestSession(t)
+	res := callTool(t, session, "get_document", map[string]any{
+		"library": "alpha",
+		"path":    "component.md",
+		"section": "Props",
+	})
+
+	var doc struct {
+		Library string `json:"library"`
+		search.Document
+	}
+	decodeStructured(t, res, &doc)
+	if !strings.HasPrefix(doc.Content, "## Props") || strings.Contains(doc.Content, "## Methods") {
+		t.Errorf("章节切片内容不正确: %q", doc.Content)
+	}
+	if len(doc.Sections) != 2 {
+		t.Errorf("应包含 2 个可用章节，实际 %d", len(doc.Sections))
 	}
 }

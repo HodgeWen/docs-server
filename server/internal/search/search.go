@@ -3,8 +3,10 @@ package search
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrNotFound 表示所查文档不存在，供上层映射为 404 语义。
@@ -16,27 +18,50 @@ const defaultLimit = 20
 // Result 是一条检索命中，Snippet 为经 normalizeSnippet 归一化的高亮片段，
 // 命中词以 <mark> 连续包裹。
 type Result struct {
-	Library string `json:"library"`
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	Snippet string `json:"snippet"`
+	Library     string `json:"library"`
+	Path        string `json:"path"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Snippet     string `json:"snippet"`
 }
 
 // Search 在 FTS5 索引中检索 query；library 非空时限定单库，缺省跨库。
-// query 经 matchQuery 转成 MATCH 表达式（中文词按二元组短语匹配，多词 AND）。
-// 结果按 bm25 排序且 title 列加权，最多返回 limit 条。
+// 优先执行 AND 检索（高精确度）；若 AND 检索结果为 0，自动降级为 OR 检索。
+// 结果按 bm25 排序（title 与 keywords 加权 10.0，description 3.0，content 1.0），最多返回 limit 条。
 func (s *Store) Search(ctx context.Context, query string, library string, limit int) ([]Result, error) {
-	match := matchQuery(query)
-	if match == "" {
+	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
 	if limit <= 0 {
 		limit = defaultLimit
 	}
 
+	matchAND := matchQueryAND(query)
+	if matchAND == "" {
+		return nil, nil
+	}
+
+	results, err := s.searchWithMatch(ctx, matchAND, library, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		return results, nil
+	}
+
+	// AND 检索无结果时，自动降级为 OR 检索
+	matchOR := matchQueryOR(query)
+	if matchOR == "" || matchOR == matchAND {
+		return nil, nil
+	}
+
+	return s.searchWithMatch(ctx, matchOR, library, limit)
+}
+
+func (s *Store) searchWithMatch(ctx context.Context, match, library string, limit int) ([]Result, error) {
 	q := `
-		SELECT l.slug, d.path, d.title,
-			snippet(documents_fts, -1, '<mark>', '</mark>', '…', 32)
+		SELECT l.slug, d.path, d.title, d.description,
+			snippet(documents_fts, -1, '<mark>', '</mark>', '…', 64)
 		FROM documents_fts
 		JOIN documents d ON d.id = documents_fts.rowid
 		JOIN libraries l ON l.id = d.library_id
@@ -46,20 +71,20 @@ func (s *Store) Search(ctx context.Context, query string, library string, limit 
 		q += ` AND l.slug = ?`
 		args = append(args, library)
 	}
-	// bm25 权重对应 FTS 列序：title、description、content，标题命中优先。
-	q += ` ORDER BY bm25(documents_fts, 10.0, 3.0, 1.0) LIMIT ?`
+	// bm25 权重对应 FTS 列序：title (10.0), keywords (10.0), description (3.0), content (1.0)。
+	q += ` ORDER BY bm25(documents_fts, 10.0, 10.0, 3.0, 1.0) LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("检索 %q: %w", query, err)
+		return nil, fmt.Errorf("检索 match=%q: %w", match, err)
 	}
 	defer rows.Close()
 
 	var results []Result
 	for rows.Next() {
 		var r Result
-		if err := rows.Scan(&r.Library, &r.Path, &r.Title, &r.Snippet); err != nil {
+		if err := rows.Scan(&r.Library, &r.Path, &r.Title, &r.Description, &r.Snippet); err != nil {
 			return nil, fmt.Errorf("读取检索结果: %w", err)
 		}
 		r.Snippet = normalizeSnippet(r.Snippet)
@@ -71,21 +96,41 @@ func (s *Store) Search(ctx context.Context, query string, library string, limit 
 	return results, nil
 }
 
-// GetDocument 按 library + path 取回文档全文与元数据；不存在时返回 ErrNotFound。
-func (s *Store) GetDocument(ctx context.Context, library, path string) (Document, error) {
+// GetDocument 按 library + path 取回文档全文与元数据；支持可选的 section 参数切片二级标题章节；
+// 文档不存在时返回 ErrNotFound，章节不存在时返回 ErrSectionNotFound。
+func (s *Store) GetDocument(ctx context.Context, library, path string, section ...string) (Document, error) {
 	var d Document
+	var kwRaw, alRaw string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT d.path, d.title, d.description, d.content
+		SELECT d.path, d.title, d.description, d.keywords, d.aliases, d.content
 		FROM documents d
 		JOIN libraries l ON l.id = d.library_id
 		WHERE l.slug = ? AND d.path = ?`, library, path).
-		Scan(&d.Path, &d.Title, &d.Description, &d.Content)
+		Scan(&d.Path, &d.Title, &d.Description, &kwRaw, &alRaw, &d.Content)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, ErrNotFound
 	}
 	if err != nil {
 		return Document{}, fmt.Errorf("查询文档 %s/%s: %w", library, path, err)
 	}
+
+	if kwRaw != "" {
+		_ = json.Unmarshal([]byte(kwRaw), &d.Keywords)
+	}
+	if alRaw != "" {
+		_ = json.Unmarshal([]byte(alRaw), &d.Aliases)
+	}
+
+	d.Sections = ExtractSections(d.Content)
+
+	if len(section) > 0 && strings.TrimSpace(section[0]) != "" {
+		secContent, _, err := ExtractSection(d.Content, section[0])
+		if err != nil {
+			return Document{}, err
+		}
+		d.Content = secContent
+	}
+
 	return d, nil
 }
 

@@ -2,15 +2,20 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Document 是一篇待索引的文档，Path 在库内唯一。
 type Document struct {
-	Path        string `json:"path"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
+	Path        string   `json:"path"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Keywords    []string `json:"keywords,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+	Sections    []string `json:"sections,omitempty"`
+	Content     string   `json:"content"`
 }
 
 // ReplaceLibrary 以 docs 整库替换 slug 库：事务内删除该库旧文档及其 FTS 索引、
@@ -41,15 +46,15 @@ func (s *Store) ReplaceLibrary(ctx context.Context, slug string, docs []Document
 	}
 
 	docStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO documents (library_id, path, title, description, content)
-		VALUES (?, ?, ?, ?, ?) RETURNING id`)
+		INSERT INTO documents (library_id, path, title, description, keywords, aliases, content)
+		VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("准备写入语句: %w", err)
 	}
 	defer docStmt.Close()
 	ftsStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO documents_fts (rowid, title, description, content)
-		VALUES (?, ?, ?, ?)`)
+		INSERT INTO documents_fts (rowid, title, keywords, description, content)
+		VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("准备索引语句: %w", err)
 	}
@@ -57,10 +62,25 @@ func (s *Store) ReplaceLibrary(ctx context.Context, slug string, docs []Document
 
 	for _, d := range docs {
 		var docID int64
-		if err := docStmt.QueryRowContext(ctx, libraryID, d.Path, d.Title, d.Description, d.Content).Scan(&docID); err != nil {
+		kwJSON, err := json.Marshal(d.Keywords)
+		if err != nil {
+			return fmt.Errorf("序列化 keywords %q: %w", d.Path, err)
+		}
+		alJSON, err := json.Marshal(d.Aliases)
+		if err != nil {
+			return fmt.Errorf("序列化 aliases %q: %w", d.Path, err)
+		}
+		if err := docStmt.QueryRowContext(ctx, libraryID, d.Path, d.Title, d.Description, string(kwJSON), string(alJSON), d.Content).Scan(&docID); err != nil {
 			return fmt.Errorf("写入文档 %q: %w", d.Path, err)
 		}
-		if _, err := ftsStmt.ExecContext(ctx, docID, indexText(d.Title), indexText(d.Description), indexText(d.Content)); err != nil {
+		var kwList []string
+		for _, w := range append(d.Aliases, d.Keywords...) {
+			if trimmed := strings.TrimSpace(w); trimmed != "" {
+				kwList = append(kwList, trimmed)
+			}
+		}
+		kwText := strings.Join(kwList, " ")
+		if _, err := ftsStmt.ExecContext(ctx, docID, indexText(d.Title), indexText(kwText), indexText(d.Description), indexText(d.Content)); err != nil {
 			return fmt.Errorf("写入文档 %q 索引: %w", d.Path, err)
 		}
 	}

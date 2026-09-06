@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -67,4 +68,55 @@ func TestParseCRLF(t *testing.T) {
 	if doc.Title != "标题" || !strings.HasPrefix(doc.Content, "正文") {
 		t.Errorf("解析结果不符: %+v", doc)
 	}
+}
+
+func TestParseAliasesAndKeywords(t *testing.T) {
+	t.Run("YAML 列表格式", func(t *testing.T) {
+		raw := `---
+title: UTableEditor
+description: 表格编辑器
+aliases:
+  - 行内编辑
+  - 单元格编辑
+keywords:
+  - table
+  - editor
+---
+正文内容
+`
+		doc, err := Parse(raw)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		wantAliases := []string{"行内编辑", "单元格编辑"}
+		if !reflect.DeepEqual(doc.Aliases, wantAliases) {
+			t.Errorf("Aliases = %v, 期望 %v", doc.Aliases, wantAliases)
+		}
+		wantKeywords := []string{"table", "editor"}
+		if !reflect.DeepEqual(doc.Keywords, wantKeywords) {
+			t.Errorf("Keywords = %v, 期望 %v", doc.Keywords, wantKeywords)
+		}
+	})
+
+	t.Run("内联数组与标量逗号格式", func(t *testing.T) {
+		raw := `---
+title: UTableEditor
+aliases: [行内编辑, 单元格编辑]
+keywords: "table，editor, grid"
+---
+正文内容
+`
+		doc, err := Parse(raw)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		wantAliases := []string{"行内编辑", "单元格编辑"}
+		if !reflect.DeepEqual(doc.Aliases, wantAliases) {
+			t.Errorf("Aliases = %v, 期望 %v", doc.Aliases, wantAliases)
+		}
+		wantKeywords := []string{"table", "editor", "grid"}
+		if !reflect.DeepEqual(doc.Keywords, wantKeywords) {
+			t.Errorf("Keywords = %v, 期望 %v", doc.Keywords, wantKeywords)
+		}
+	})
 }
