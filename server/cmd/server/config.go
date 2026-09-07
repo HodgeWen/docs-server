@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	envAddr      = "DOCS_MCP_ADDR"
-	envDBPath    = "DOCS_MCP_DB_PATH"
-	envPushToken = "DOCS_MCP_PUSH_TOKEN"
-	envConfig    = "DOCS_MCP_CONFIG"
+	envAddr      = "DOCS_ADDR"
+	envDBPath    = "DOCS_DB_PATH"
+	envPushToken = "DOCS_PUSH_TOKEN"
+	envConfig    = "DOCS_CONFIG"
 
 	defaultAddr = ":8080"
 )
@@ -26,7 +26,7 @@ type config struct {
 	PushToken string `yaml:"push_token"`
 }
 
-// loadConfig 装配配置：先读配置文件（-config 或 DOCS_MCP_CONFIG 指定），
+// loadConfig 装配配置：先读配置文件（-config 或 DOCS_CONFIG 指定），
 // 再用环境变量逐项覆盖，最后校验必填项。
 func loadConfig(file string) (config, error) {
 	cfg := config{Addr: defaultAddr}
@@ -56,9 +56,9 @@ func loadConfig(file string) (config, error) {
 
 	switch {
 	case cfg.DBPath == "":
-		return config{}, errors.New("缺少 db_path 配置（配置文件或环境变量 DOCS_MCP_DB_PATH）")
+		return config{}, errors.New("缺少 db_path 配置（配置文件或环境变量 DOCS_DB_PATH）")
 	case cfg.PushToken == "":
-		return config{}, errors.New("缺少 push_token 配置（配置文件或环境变量 DOCS_MCP_PUSH_TOKEN）")
+		return config{}, errors.New("缺少 push_token 配置（配置文件或环境变量 DOCS_PUSH_TOKEN）")
 	}
 	return cfg, nil
 }

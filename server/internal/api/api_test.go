@@ -231,6 +231,14 @@ func TestReadEndpointsAfterPush(t *testing.T) {
 	}
 }
 
+func TestGetMCPIsNotFound(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, http.MethodGet, "/mcp", "", "")
+	if code := requireError(t, rec, http.StatusNotFound); code != "not_found" {
+		t.Errorf("GET /mcp 错误码应为 not_found，实际 %q", code)
+	}
+}
+
 func TestGetDocumentNotFound(t *testing.T) {
 	s := newTestServer(t)
 	rec := do(t, s, http.MethodGet, "/api/v1/libraries/alpha/documents/missing.md", "", "")

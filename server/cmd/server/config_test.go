@@ -98,6 +98,24 @@ func TestLoadConfigFileErrors(t *testing.T) {
 	})
 }
 
+func TestLoadConfigIgnoresLegacyMCPEnv(t *testing.T) {
+	t.Setenv("DOCS_MCP_ADDR", ":9090")
+	t.Setenv("DOCS_MCP_DB_PATH", "/tmp/docs.db")
+	t.Setenv("DOCS_MCP_PUSH_TOKEN", "secret")
+	t.Setenv("DOCS_MCP_CONFIG", "/from/legacy.yaml")
+	t.Setenv(envAddr, "")
+	t.Setenv(envDBPath, "")
+	t.Setenv(envPushToken, "")
+	t.Setenv(envConfig, "")
+
+	if _, err := loadConfig(""); err == nil {
+		t.Fatal("只设旧名 DOCS_MCP_* 时应视为缺必填，不能启动")
+	}
+	if got := configFilePath(""); got != "" {
+		t.Errorf("configFilePath = %q，不应读取 DOCS_MCP_CONFIG", got)
+	}
+}
+
 func TestConfigFilePath(t *testing.T) {
 	t.Run("flag优先", func(t *testing.T) {
 		t.Setenv(envConfig, "/from/env.yaml")

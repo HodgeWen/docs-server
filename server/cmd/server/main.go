@@ -1,5 +1,5 @@
 // Command server 是 docs-mcp 的单二进制服务：装配配置文件与环境变量、SQLite 存储、
-// REST 与 MCP handler，起 HTTP 服务。
+// REST handler，起 HTTP 服务。
 package main
 
 import (
@@ -10,13 +10,12 @@ import (
 	"os"
 
 	"github.com/hodgewen/docs-mcp/server/internal/api"
-	"github.com/hodgewen/docs-mcp/server/internal/mcp"
 	"github.com/hodgewen/docs-mcp/server/internal/search"
 )
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	configFile := flag.String("config", "", "YAML 配置文件路径（也可用环境变量 DOCS_MCP_CONFIG 指定）")
+	configFile := flag.String("config", "", "YAML 配置文件路径（也可用环境变量 DOCS_CONFIG 指定）")
 	flag.Parse()
 	if err := run(*configFile); err != nil {
 		slog.Error("服务退出", "err", err)
@@ -37,14 +36,9 @@ func run(configFile string) error {
 	}
 	defer store.Close()
 
-	// REST 与 MCP 同端口：/mcp 走 streamable HTTP，其余归 REST 路由。
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewHandler(store))
-	mux.Handle("/", api.NewServer(store, cfg.PushToken))
-
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: mux,
+		Handler: api.NewServer(store, cfg.PushToken),
 	}
 	slog.Info("HTTP 服务启动", "addr", cfg.Addr, "db", cfg.DBPath)
 	return srv.ListenAndServe()
