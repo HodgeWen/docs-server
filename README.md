@@ -1,19 +1,21 @@
 # docs-mcp
 
-企业内部库文档检索系统：库维护者把文档推送到中心服务建全文索引，库使用者在编辑器里让 AI 通过远程 MCP 直接检索这些文档。
+企业内部库文档检索系统：库维护者把文档推送到中心服务建全文索引，库使用者在编辑器里让 AI 通过 Agent Skill 调用 REST 检索这些文档。
 
 ```
 库维护者                          中心服务                          库使用者
-push-docs.mjs ──HTTP PUT──▶ docs-mcp（Go 单二进制） ◀──streamable HTTP MCP── 编辑器 MCP client
-（零依赖 Node 脚本）          SQLite + FTS5 全文索引              （Kimi Code、Claude Code 等）
+push-docs.mjs ──HTTP PUT──▶ docs-mcp（Go 单二进制） ◀──REST── Agent Skill（docs-search 查询脚本）
+（零依赖 Node 脚本）          SQLite + FTS5 全文索引              （npx skills add 安装）
 ```
 
-单仓两部分：
+单仓四部分：
 
 | 部分 | 路径 | 说明 |
 | --- | --- | --- |
-| 文档服务 | `server/` | Go 单进程：REST API + MCP 端点同端口，SQLite FTS5 全文检索，编译为 CGO 关闭的单文件静态二进制 |
+| 文档服务 | `server/` | Go 单进程：REST API，SQLite FTS5 全文检索，编译为 CGO 关闭的单文件静态二进制 |
 | 推送脚本 | `scripts/push-docs.mjs` | 零依赖单文件 Node 脚本（Node ≥ 18），复制到库仓库使用，整库全量推送 |
+| 检索技能 | `skills/docs-search/` | 通用检索技能：内嵌查询脚本调 REST（list / search / get） |
+| 推送技能 | `skills/docs-mcp/` | 库维护者接入技能：安装推送脚本、文档标准、执行推送 |
 
 ## 部署
 
@@ -35,9 +37,9 @@ chmod +x docs-mcp-linux-x64
 
 | 变量 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `DOCS_MCP_DB_PATH` | 是 | — | SQLite 数据库文件路径（自动建库建索引） |
-| `DOCS_MCP_PUSH_TOKEN` | 是 | — | 推送令牌，推送接口 Bearer 鉴权用；读路径免鉴权 |
-| `DOCS_MCP_ADDR` | 否 | `:8080` | HTTP 监听地址 |
+| `DOCS_DB_PATH` | 是 | — | SQLite 数据库文件路径（自动建库建索引） |
+| `DOCS_PUSH_TOKEN` | 是 | — | 推送令牌，推送接口 Bearer 鉴权用；读路径免鉴权 |
+| `DOCS_ADDR` | 否 | `:8080` | HTTP 监听地址 |
 
 **方式 B：YAML 配置文件**
 
@@ -48,7 +50,7 @@ db_path: /var/lib/docs-mcp/docs.db
 push_token: <openssl rand -hex 32 生成的令牌>
 ```
 
-用 `-config` 参数或 `DOCS_MCP_CONFIG` 环境变量指定文件路径：
+用 `-config` 参数或 `DOCS_CONFIG` 环境变量指定文件路径：
 
 ```bash
 ./docs-mcp-linux-x64 -config /etc/docs-mcp.yaml
@@ -57,9 +59,9 @@ push_token: <openssl rand -hex 32 生成的令牌>
 ### 3. 运行
 
 ```bash
-DOCS_MCP_DB_PATH=/var/lib/docs-mcp/docs.db \
-DOCS_MCP_PUSH_TOKEN=$(openssl rand -hex 32) \
-DOCS_MCP_ADDR=:8080 \
+DOCS_DB_PATH=/var/lib/docs-mcp/docs.db \
+DOCS_PUSH_TOKEN=$(openssl rand -hex 32) \
+DOCS_ADDR=:8080 \
 ./docs-mcp-linux-x64
 ```
 
@@ -72,8 +74,8 @@ After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/docs-mcp-linux-x64
-Environment=DOCS_MCP_DB_PATH=/var/lib/docs-mcp/docs.db
-EnvironmentFile=/etc/docs-mcp.env   # 其中放 DOCS_MCP_PUSH_TOKEN=...
+Environment=DOCS_DB_PATH=/var/lib/docs-mcp/docs.db
+EnvironmentFile=/etc/docs-mcp.env   # 其中放 DOCS_PUSH_TOKEN=...
 Restart=on-failure
 StateDirectory=docs-mcp
 
@@ -116,17 +118,17 @@ description: 五分钟上手指南
 ### 3. 执行推送
 
 ```bash
-DOCS_MCP_SERVER_URL=http://docs-mcp.internal:8080 \
-DOCS_MCP_TOKEN=<推送令牌> \
-DOCS_MCP_LIBRARY=my-lib \
+DOCS_SERVER_URL=http://docs-mcp.internal:8080 \
+DOCS_TOKEN=<推送令牌> \
+DOCS_LIBRARY=my-lib \
 node scripts/push-docs.mjs [文档目录，默认 docs/]
 ```
 
 | 环境变量 | 说明 |
 | --- | --- |
-| `DOCS_MCP_SERVER_URL` | 服务端地址（结尾斜杠会自动去掉） |
-| `DOCS_MCP_TOKEN` | 与服务端 `DOCS_MCP_PUSH_TOKEN` 一致的推送令牌 |
-| `DOCS_MCP_LIBRARY` | 库标识（slug）：仅小写字母、数字与连字符 |
+| `DOCS_SERVER_URL` | 服务端地址（结尾斜杠会自动去掉） |
+| `DOCS_TOKEN` | 与服务端 `DOCS_PUSH_TOKEN` 一致的推送令牌 |
+| `DOCS_LIBRARY` | 库标识（slug）：仅小写字母、数字与连字符 |
 
 行为说明：
 
@@ -137,9 +139,9 @@ node scripts/push-docs.mjs [文档目录，默认 docs/]
 ```yaml
 - run: node scripts/push-docs.mjs
   env:
-    DOCS_MCP_SERVER_URL: ${{ vars.DOCS_MCP_SERVER_URL }}
-    DOCS_MCP_TOKEN: ${{ secrets.DOCS_MCP_TOKEN }}
-    DOCS_MCP_LIBRARY: my-lib
+    DOCS_SERVER_URL: ${{ vars.DOCS_SERVER_URL }}
+    DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
+    DOCS_LIBRARY: my-lib
 ```
 
 ## REST API
@@ -158,31 +160,46 @@ node scripts/push-docs.mjs [文档目录，默认 docs/]
 curl 'http://localhost:8080/api/v1/search?q=如何分页'
 ```
 
-## MCP 接入（库使用者）
+## 检索接入（库使用者）
 
-MCP 端点为 `http://<服务地址>/mcp`（streamable HTTP），免鉴权，暴露三个 tools：
-
-| Tool | 参数 | 说明 |
-| --- | --- | --- |
-| `search` | `query`（必填）、`library`（可选，限定单库） | 全文检索，bm25 排序、标题加权、高亮片段 |
-| `get_document` | `library`、`path`（均必填） | 取回文档全文与元数据 |
-| `list_libraries` | 无 | 列出全部库 slug |
-
-Claude Code 接入：
+消费侧是 Agent Skill + REST：安装本仓库技能、设置 `DOCS_SERVER_URL`，由 AI 运行 `docs-search` 查询脚本。读路径免鉴权。
 
 ```bash
-claude mcp add --transport http docs-mcp http://docs-mcp.internal:8080/mcp
+# 安装检索技能（也可不加 --skill，同时装上库维护者用的 docs-mcp）
+npx skills add HodgeWen/docs-mcp --skill docs-search
+
+# 已安装则更新
+npx skills update
 ```
 
-其他支持远程 HTTP MCP 的客户端（Kimi Code 等），在 MCP 配置中添加：
+设置服务地址（结尾斜杠会自动去掉）：
 
-```json
-{
-  "mcpServers": {
-    "docs-mcp": { "type": "http", "url": "http://docs-mcp.internal:8080/mcp" }
-  }
-}
+```bash
+export DOCS_SERVER_URL=http://docs-mcp.internal:8080
 ```
+
+需要检索内部库文档时，AI 从技能目录运行内嵌脚本（Node ≥ 26）：
+
+```bash
+node scripts/query.mjs libraries
+node scripts/query.mjs search --q <关键词> [--library <slug>]
+node scripts/query.mjs get --library <slug> --path <path> [--section <章节>]
+```
+
+### 从旧接入方式迁移
+
+若你曾把本服务配成各宿主的远程 MCP 端点：
+
+1. **删除各宿主 MCP 配置**：去掉 Claude Code 的 `claude mcp add ... /mcp`、配置文件里的 `mcpServers.docs-mcp` 等条目。
+2. **改环境变量名**（服务端不再读取任何 `DOCS_MCP_*`）：
+   - `DOCS_MCP_ADDR` → `DOCS_ADDR`
+   - `DOCS_MCP_DB_PATH` → `DOCS_DB_PATH`
+   - `DOCS_MCP_PUSH_TOKEN` → `DOCS_PUSH_TOKEN`
+   - `DOCS_MCP_CONFIG` → `DOCS_CONFIG`
+   - `DOCS_MCP_SERVER_URL` → `DOCS_SERVER_URL`
+   - `DOCS_MCP_TOKEN` → `DOCS_TOKEN`
+   - `DOCS_MCP_LIBRARY` → `DOCS_LIBRARY`
+3. **安装检索技能**：按上一节用 `npx skills add` / `npx skills update` 安装 `docs-search`，并设置 `DOCS_SERVER_URL`。
 
 ## 开发
 

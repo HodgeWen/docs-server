@@ -23,16 +23,17 @@
                     └─────────────────────────────────┬────────────────────────────────┘
                                                       │
                     ┌─────────────────────────────────┴────────────────────────────────┐
-                    │                       AI 客户端消费端点                           │
+                    │              消费：REST + docs-search 查询脚本                    │
                     │                                                                  │
-                    │  【Tool: search】                                                │
+                    │  search（GET /api/v1/search）                                    │
                     │   - 自动过滤中文停用词（"如何"、"怎么"、"使用" 等）              │
                     │   - 优先 AND 短语匹配；无结果时自动降级 OR 宽容匹配               │
                     │   - 返回 title, description, path, snippet(高亮命中片段)         │
                     │                                                                  │
-                    │  【Tool: get_document】                                          │
-                    │   - 传入 section 参数可按二级标题（## ）精准提取局部章节          │
+                    │  get_document（GET .../documents/{path}，可选 section）          │
+                    │   - 传入 section 可按二级标题（## ）精准提取局部章节             │
                     │   - 提取失败时返回文档全部可用二级标题列表供 AI 重新决策         │
+                    │   - 技能侧：query.mjs get --library --path [--section]           │
                     └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -138,7 +139,7 @@ docs/
 
 ## 四、二级标题（`## `）设计规范：开启精准切片提取
 
-`docs-mcp` 的 `get_document` 工具原生支持 `section` 参数：**直接根据二级标题（`## `）截取该段内容并返回**。
+REST 取文档接口（`GET /api/v1/libraries/{slug}/documents/{path}`）与 `docs-search` 查询脚本的 `get --section` 均支持 `section` 参数：**直接根据二级标题（`## `）截取该段内容并返回**。
 
 如果 AI 仅需查询参数列表，只需提取 `## Props`，不仅响应速度提升数倍，而且节省了 80% 以上的上下文空间。
 
@@ -385,9 +386,9 @@ jobs:
 
       - name: Push docs to docs-mcp
         env:
-          DOCS_MCP_SERVER_URL: ${{ vars.DOCS_MCP_SERVER_URL }}
-          DOCS_MCP_TOKEN: ${{ secrets.DOCS_MCP_TOKEN }}
-          DOCS_MCP_LIBRARY: my-library-slug
+          DOCS_SERVER_URL: ${{ vars.DOCS_SERVER_URL }}
+          DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
+          DOCS_LIBRARY: my-library-slug
         run: |
           node scripts/push-docs.mjs docs
 ```
@@ -398,7 +399,7 @@ jobs:
 
 - [ ] 每个 Markdown 文件开头都有符合规范的 Frontmatter，包含 `title` 与 `description`。
 - [ ] 针对易混淆或提问频率高的场景，已在 `keywords` 和 `aliases` 中补充了同义词与参数名。
-- [ ] 核心内容均归类在规范命名的二级标题（`## `）下，便于 MCP `section` 切片提取。
+- [ ] 核心内容均归类在规范命名的二级标题（`## `）下，便于 `docs-search` 按 `section` 切片提取。
 - [ ] 代码示例包含完整的公共导出路径，无内部私有路径引用。
 - [ ] 标注了关键的避坑指南与与通用框架/开源库的用法差异。
-- [ ] 库标识符 `DOCS_MCP_LIBRARY` 仅包含小写英文字母、数字与连字符（如 `my-sdk`、`ui-core`）。
+- [ ] 库标识符 `DOCS_LIBRARY` 仅包含小写英文字母、数字与连字符（如 `my-sdk`、`ui-core`）。
