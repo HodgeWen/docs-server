@@ -15,7 +15,7 @@ import (
 )
 
 // serverVersion 是 initialize 响应里的服务端版本。
-const serverVersion = "v0.1.0-beta.3"
+const serverVersion = "v0.1.0-beta.4"
 
 // NewHandler 装配 MCP server 并返回挂在 /mcp 的 streamable HTTP handler，
 // 读路径免鉴权。
