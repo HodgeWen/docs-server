@@ -1,10 +1,10 @@
-# docs-mcp
+# docs-server
 
 企业内部库文档检索系统：库维护者把文档推送到中心服务建全文索引，库使用者在编辑器里让 AI 通过 Agent Skill 调用 REST 检索这些文档。
 
 ```
 库维护者                          中心服务                          库使用者
-push-docs.mjs ──HTTP PUT──▶ docs-mcp（Go 单二进制） ◀──REST── Agent Skill（docs-search 查询脚本）
+push-docs.mjs ──HTTP PUT──▶ docs-server（Go 单二进制） ◀──REST── Agent Skill（docs-search 查询脚本）
 （零依赖 Node 脚本）          SQLite + FTS5 全文索引              （npx skills add 安装）
 ```
 
@@ -21,11 +21,11 @@ push-docs.mjs ──HTTP PUT──▶ docs-mcp（Go 单二进制） ◀──RES
 
 ### 1. 获取二进制
 
-从 [GitHub Releases](https://github.com/HodgeWen/docs-mcp/releases) 下载对应平台的静态二进制（linux/darwin × amd64/arm64），放到服务器任意目录：
+从 [GitHub Releases](https://github.com/HodgeWen/docs-server/releases) 下载对应平台的静态二进制（linux/darwin × amd64/arm64），放到服务器任意目录：
 
 ```bash
 # 例：Linux x64
-curl -LO https://github.com/HodgeWen/docs-mcp/releases/latest/download/docs-mcp-linux-x64
+curl -LO https://github.com/HodgeWen/docs-server/releases/latest/download/docs-mcp-linux-x64
 chmod +x docs-mcp-linux-x64
 ```
 
@@ -44,22 +44,22 @@ chmod +x docs-mcp-linux-x64
 **方式 B：YAML 配置文件**
 
 ```yaml
-# /etc/docs-mcp.yaml
+# /etc/docs-server.yaml
 addr: ":8080"
-db_path: /var/lib/docs-mcp/docs.db
+db_path: /var/lib/docs-server/docs.db
 push_token: <openssl rand -hex 32 生成的令牌>
 ```
 
 用 `-config` 参数或 `DOCS_CONFIG` 环境变量指定文件路径：
 
 ```bash
-./docs-mcp-linux-x64 -config /etc/docs-mcp.yaml
+./docs-mcp-linux-x64 -config /etc/docs-server.yaml
 ```
 
 ### 3. 运行
 
 ```bash
-DOCS_DB_PATH=/var/lib/docs-mcp/docs.db \
+DOCS_DB_PATH=/var/lib/docs-server/docs.db \
 DOCS_PUSH_TOKEN=$(openssl rand -hex 32) \
 DOCS_ADDR=:8080 \
 ./docs-mcp-linux-x64
@@ -68,23 +68,23 @@ DOCS_ADDR=:8080 \
 ### 4. systemd 常驻（可选）
 
 ```ini
-# /etc/systemd/system/docs-mcp.service
+# /etc/systemd/system/docs-server.service
 [Unit]
 After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/docs-mcp-linux-x64
-Environment=DOCS_DB_PATH=/var/lib/docs-mcp/docs.db
-EnvironmentFile=/etc/docs-mcp.env   # 其中放 DOCS_PUSH_TOKEN=...
+Environment=DOCS_DB_PATH=/var/lib/docs-server/docs.db
+EnvironmentFile=/etc/docs-server.env   # 其中放 DOCS_PUSH_TOKEN=...
 Restart=on-failure
-StateDirectory=docs-mcp
+StateDirectory=docs-server
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now docs-mcp
+sudo systemctl enable --now docs-server
 ```
 
 ### 从源码构建
@@ -118,7 +118,7 @@ description: 五分钟上手指南
 ### 3. 执行推送
 
 ```bash
-DOCS_SERVER_URL=http://docs-mcp.internal:8080 \
+DOCS_SERVER_URL=http://docs-server.internal:8080 \
 DOCS_TOKEN=<推送令牌> \
 DOCS_LIBRARY=my-lib \
 node scripts/push-docs.mjs [文档目录，默认 docs/]
@@ -166,7 +166,7 @@ curl 'http://localhost:8080/api/v1/search?q=如何分页'
 
 ```bash
 # 安装检索技能（也可不加 --skill，同时装上库维护者用的 docs-mcp）
-npx skills add HodgeWen/docs-mcp --skill docs-search
+npx skills add HodgeWen/docs-server --skill docs-search
 
 # 已安装则更新
 npx skills update
@@ -175,7 +175,7 @@ npx skills update
 设置服务地址（结尾斜杠会自动去掉）：
 
 ```bash
-export DOCS_SERVER_URL=http://docs-mcp.internal:8080
+export DOCS_SERVER_URL=http://docs-server.internal:8080
 ```
 
 需要检索内部库文档时，AI 从技能目录运行内嵌脚本（Node ≥ 26）：
