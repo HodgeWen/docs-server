@@ -98,6 +98,28 @@ var zhStopWords = []string{
 	"进行", "关于", "对于", "以及", "并且", "而且", "或者", "及其", "通过", "其中", "可以", "能够", "如果", "虽然", "但是", "这个", "那个", "一个", "没有", "使用",
 }
 
+// zhStopWordSet 与 zhStopWordsByLenDesc 供边界剥离时 O(1) 判断与长词优先匹配。
+var (
+	zhStopWordSet        map[string]bool
+	zhStopWordsByLenDesc []string
+)
+
+func init() {
+	zhStopWordSet = make(map[string]bool, len(zhStopWords))
+	for _, sw := range zhStopWords {
+		zhStopWordSet[sw] = true
+	}
+	zhStopWordsByLenDesc = append([]string(nil), zhStopWords...)
+	// 长词优先，避免「有没有」被拆成更短的停用词前缀。
+	for i := 0; i < len(zhStopWordsByLenDesc); i++ {
+		for j := i + 1; j < len(zhStopWordsByLenDesc); j++ {
+			if len(zhStopWordsByLenDesc[j]) > len(zhStopWordsByLenDesc[i]) {
+				zhStopWordsByLenDesc[i], zhStopWordsByLenDesc[j] = zhStopWordsByLenDesc[j], zhStopWordsByLenDesc[i]
+			}
+		}
+	}
+}
+
 // zhParticles 是单字助词与语气词，几乎不构成技术实体词。
 var zhParticles = map[rune]bool{
 	'的': true, '了': true, '么': true, '呢': true, '吧': true, '吗': true, '啊': true, '呀': true, '得': true, '地': true,
@@ -117,34 +139,182 @@ func cleanCJKChunk(chunk string) string {
 	return string(rs)
 }
 
-// splitQueryTerms 对用户查询进行停用词过滤与切词：
-// 1. 将常见停用词替换为空格，单字助词替换为空格
-// 2. 剥离 CJK 词的首尾常见介词/方位词（在...、...中）
-// 3. 若过滤后为空（如用户只搜“如何”或“的”），安全回退至原始空白切词结果
-func splitQueryTerms(query string) []string {
-	fields := strings.Fields(query)
-	if len(fields) == 0 {
-		return nil
-	}
-
-	filtered := query
-	for _, sw := range zhStopWords {
-		filtered = strings.ReplaceAll(filtered, sw, " ")
-	}
+// stripParticles 把单字助词替换为空格，便于后续按空白切分。
+func stripParticles(s string) string {
 	var sb strings.Builder
-	for _, r := range filtered {
+	for _, r := range s {
 		if zhParticles[r] {
 			sb.WriteRune(' ')
 		} else {
 			sb.WriteRune(r)
 		}
 	}
+	return sb.String()
+}
+
+// filterStopWords 在词边界剥离停用词，避免子串替换误伤复合词（如「使用率」里的「使用」）。
+func filterStopWords(s string) string {
+	var parts []string
+	scanRuns(s,
+		func(rs []rune) {
+			if t := filterStopWordsCJK(rs); t != "" {
+				parts = append(parts, t)
+			}
+		},
+		func(rs []rune) {
+			w := string(rs)
+			if !zhStopWordSet[w] {
+				parts = append(parts, w)
+			}
+		})
+	return strings.Join(parts, " ")
+}
+
+// filterStopWordsCJK 在 CJK 连续段的首尾或中间（两侧均 ≥2 字）剥离停用词；
+// 若剥离后剩余不足 2 字则保留原段，防止「使用率」→「率」。
+func filterStopWordsCJK(rs []rune) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	if zhStopWordSet[string(rs)] {
+		return ""
+	}
+	for {
+		changed := false
+
+		for _, sw := range zhStopWordsByLenDesc {
+			swr := []rune(sw)
+			if len(rs) < len(swr) || string(rs[:len(swr)]) != sw {
+				continue
+			}
+			rest := rs[len(swr):]
+			if len(rest) == 0 || len(rest) >= 2 {
+				rs = rest
+				changed = true
+				break
+			}
+		}
+		if changed {
+			if len(rs) == 0 {
+				return ""
+			}
+			if zhStopWordSet[string(rs)] {
+				return ""
+			}
+			continue
+		}
+
+		for _, sw := range zhStopWordsByLenDesc {
+			swr := []rune(sw)
+			n := len(swr)
+			if len(rs) < n || string(rs[len(rs)-n:]) != sw {
+				continue
+			}
+			rest := rs[:len(rs)-n]
+			if len(rest) == 0 || len(rest) >= 2 {
+				rs = rest
+				changed = true
+				break
+			}
+		}
+		if changed {
+			if len(rs) == 0 {
+				return ""
+			}
+			if zhStopWordSet[string(rs)] {
+				return ""
+			}
+			continue
+		}
+
+		for _, sw := range zhStopWordsByLenDesc {
+			swr := []rune(sw)
+			idx := indexRunes(rs, swr)
+			if idx <= 0 || idx+len(swr) >= len(rs) {
+				continue
+			}
+			left, right := rs[:idx], rs[idx+len(swr):]
+			if len(left) < 2 || len(right) < 2 {
+				continue
+			}
+			l := filterStopWordsCJK(left)
+			r := filterStopWordsCJK(right)
+			switch {
+			case l == "" && r == "":
+				return ""
+			case l == "":
+				return r
+			case r == "":
+				return l
+			default:
+				return l + " " + r
+			}
+		}
+		break
+	}
+	return string(rs)
+}
+
+// indexRunes 在 rune 切片中查找子切片首次出现位置。
+func indexRunes(rs, sub []rune) int {
+	if len(sub) == 0 || len(sub) > len(rs) {
+		return -1
+	}
+	for i := 0; i+len(sub) <= len(rs); i++ {
+		match := true
+		for j := 0; j < len(sub); j++ {
+			if rs[i+j] != sub[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
+}
+
+// expandEmbeddedIn 识别「在X中Y」并拆成 X、Y（两侧均 ≥2 字），仅当整段以「在」开头时触发。
+func expandEmbeddedIn(s string) []string {
+	rs := []rune(s)
+	if len(rs) < 5 || rs[0] != '在' {
+		return []string{s}
+	}
+	for i := 2; i < len(rs)-1; i++ {
+		if rs[i] != '中' {
+			continue
+		}
+		left, right := rs[1:i], rs[i+1:]
+		if len(left) >= 2 && len(right) >= 2 {
+			return []string{string(left), string(right)}
+		}
+		break
+	}
+	return []string{s}
+}
+
+// 1. 按空白切字段，单字助词替换为空格后再切分
+// 2. 在词边界剥离停用词（不做全串子串替换）
+// 3. 剥离 CJK 词的首尾常见介词/方位词（在...、...中）
+// 4. 若过滤后为空（如用户只搜“如何”或“的”），安全回退至原始空白切词结果
+func splitQueryTerms(query string) []string {
+	fields := strings.Fields(query)
+	if len(fields) == 0 {
+		return nil
+	}
 
 	var terms []string
-	for _, term := range strings.Fields(sb.String()) {
-		cleaned := cleanCJKChunk(term)
-		if strings.TrimSpace(cleaned) != "" {
-			terms = append(terms, cleaned)
+	for _, field := range fields {
+		for _, chunk := range strings.Fields(stripParticles(field)) {
+			for _, part := range strings.Fields(filterStopWords(chunk)) {
+				for _, piece := range expandEmbeddedIn(part) {
+					cleaned := cleanCJKChunk(piece)
+					if cleaned != "" {
+						terms = append(terms, cleaned)
+					}
+				}
+			}
 		}
 	}
 

@@ -142,6 +142,11 @@ func TestSplitQueryTerms(t *testing.T) {
 		{"英文与数字混排", "UButton size", []string{"UButton", "size"}},
 		{"全停用词安全回退", "如何", []string{"如何"}},
 		{"全助词安全回退", "的", []string{"的"}},
+		{"复合词不误伤使用率", "使用率", []string{"使用率"}},
+		{"复合词不误伤使用者", "使用者", []string{"使用者"}},
+		{"动宾仍可剥离使用", "使用分页", []string{"分页"}},
+		{"自然句中的复合词", "如何在表格中使用率", []string{"表格", "使用率"}},
+		{"关于复合词", "关于使用率", []string{"使用率"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
