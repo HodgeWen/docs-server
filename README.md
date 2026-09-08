@@ -15,7 +15,7 @@ push-docs.mjs ──HTTP PUT──▶ docs-server（Go 单二进制） ◀──
 | 文档服务 | `server/` | Go 单进程：REST API，SQLite FTS5 全文检索，编译为 CGO 关闭的单文件静态二进制 |
 | 推送脚本 | `scripts/push-docs.mjs` | 零依赖单文件 Node 脚本（Node ≥ 18），复制到库仓库使用，整库全量推送 |
 | 检索技能 | `skills/docs-search/` | 通用检索技能：内嵌查询脚本调 REST（list / search / get） |
-| 推送技能 | `skills/docs-mcp/` | 库维护者接入技能：安装推送脚本、文档标准、执行推送 |
+| 文档生成技能 | `skills/docs-gen/` | 只服务库：文档标准（检索优化）、安装推送脚本、库代码改动后同步文档、执行推送 |
 
 ## 部署
 
@@ -100,7 +100,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o docs-mcp ./cmd/server
 
 ### 1. 准备文档
 
-在你的库仓库里放 Markdown 文档（默认扫描 `docs/` 目录，可换目录）。每个文件需要 YAML frontmatter，`title` 必填：
+在你的库仓库里放 Markdown 文档（默认扫描 `agent-docs/` 目录，可换目录）。每个文件需要 YAML frontmatter，`title` 必填：
 
 ```markdown
 ---
@@ -121,7 +121,7 @@ description: 五分钟上手指南
 DOCS_SERVER_URL=http://docs-server.internal:8080 \
 DOCS_TOKEN=<推送令牌> \
 DOCS_LIBRARY=my-lib \
-node scripts/push-docs.mjs [文档目录，默认 docs/]
+node scripts/push-docs.mjs [文档目录，默认 agent-docs/]
 ```
 
 | 环境变量 | 说明 |
@@ -152,8 +152,8 @@ node scripts/push-docs.mjs [文档目录，默认 docs/]
 | --- | --- | --- | --- |
 | PUT | `/api/v1/libraries/{slug}/documents` | Bearer | 整库覆盖推送，body 为 `[{"path","content"}]` 数组 |
 | GET | `/api/v1/libraries` | 免 | 列出全部库 slug：`{"libraries":[...]}` |
-| GET | `/api/v1/libraries/{slug}/documents/{path}` | 免 | 取文档全文与元数据 |
-| GET | `/api/v1/search?q=关键词&library=slug` | 免 | 全文检索，`library` 可选；返回 `[{library,path,title,snippet}]`，命中词以 `<mark>` 包裹 |
+| GET | `/api/v1/libraries/{slug}/documents/{path}` | 免 | 取文档；可选 `?section=` 提取 `## ` 章节；返回 `{library,path,title,description,keywords,aliases,sections,content}` |
+| GET | `/api/v1/search?q=关键词&library=slug` | 免 | 全文检索，`library` 可选；返回 `{"results":[{library,path,title,description,snippet}]}`，命中词以 `<mark>` 包裹 |
 
 ```bash
 # 搜索示例
@@ -165,7 +165,7 @@ curl 'http://localhost:8080/api/v1/search?q=如何分页'
 消费侧是 Agent Skill + REST：安装本仓库技能、设置 `DOCS_SERVER_URL`，由 AI 运行 `docs-search` 查询脚本。读路径免鉴权。
 
 ```bash
-# 安装检索技能（也可不加 --skill，同时装上库维护者用的 docs-mcp）
+# 安装检索技能（也可不加 --skill，同时装上库维护者用的 docs-gen）
 npx skills add HodgeWen/docs-server --skill docs-search
 
 # 已安装则更新

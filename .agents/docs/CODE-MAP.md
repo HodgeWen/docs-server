@@ -16,7 +16,7 @@ docs-mcp/
 │   └── push-docs.mjs         # 零依赖 Node 推送脚本，用户复制到库仓库使用
 ├── skills/
 │   ├── docs-search/          # 检索技能：AI 运行内嵌查询脚本调 REST
-│   └── docs-mcp/             # 库维护者接入技能：推送/文档标准；内含脚本副本
+│   └── docs-gen/              # 库文档生成技能：文档标准/变更同步/推送；内含脚本副本
 ├── .github/workflows/        # GitHub Actions：测试 + v* tag 构建四平台二进制发 Releases
 └── .agents/                  # 工程协作（docs/scripts 入库，cooking 忽略）
 ```
@@ -32,7 +32,7 @@ docs-mcp/
 | 推送脚本 | `scripts/push-docs.mjs` | 扫描库内文档，HTTP 全量推送到服务端 | `scripts/push-docs.mjs` |
 | docs-search 技能 | `skills/docs-search/` | 通用检索技能：指导 AI 运行内嵌脚本 list_libraries / search / get_document | `skills/docs-search/SKILL.md` |
 | 查询脚本 | `skills/docs-search/scripts/query.mjs` | 零依赖 Node 脚本，读 `DOCS_SERVER_URL` 调 REST，stdout 打印 JSON | `skills/docs-search/scripts/query.mjs` |
-| docs-mcp 技能 | `skills/docs-mcp/` | 库维护者接入技能：安装脚本/引导 .env/文档标准/执行推送；脚本副本须与 `scripts/push-docs.mjs` 同步 | `skills/docs-mcp/SKILL.md` |
+| docs-gen 技能 | `skills/docs-gen/` | 库文档生成技能（只服务库）：文档标准/安装脚本/引导 .env/库代码改动后判定并同步受影响文档/执行推送；脚本副本须与 `scripts/push-docs.mjs` 同步 | `skills/docs-gen/SKILL.md` |
 
 ## 依赖
 

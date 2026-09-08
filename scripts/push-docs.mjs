@@ -6,7 +6,7 @@
 //   DOCS_SERVER_URL=http://localhost:8080 \
 //   DOCS_TOKEN=<推送令牌> \
 //   DOCS_LIBRARY=<库 slug> \
-//   node scripts/push-docs.mjs [文档根目录，默认 docs/]
+//   node scripts/push-docs.mjs [文档根目录，默认 agent-docs/]
 
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -94,7 +94,7 @@ function parseFrontmatter(content, relPath) {
 
 async function main() {
   const { serverUrl, token, library } = readEnv();
-  const root = process.argv[2] ?? 'docs';
+  const root = process.argv[2] ?? 'agent-docs';
 
   const files = await collectMarkdownFiles(root);
   if (files.length === 0) {

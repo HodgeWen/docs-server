@@ -8,7 +8,7 @@ docs-mcp 面向企业内部：库维护者把库文档推送到中心文档服�
 
 主要流程：
 
-1. 库维护者把 `scripts/push-docs.mjs` 复制到自己仓库（或经 `skills/docs-mcp` 安装），配环境变量（`DOCS_SERVER_URL`、`DOCS_TOKEN`、`DOCS_LIBRARY`），手动或在 CI 执行，把 Markdown 文档（含 frontmatter）经 HTTP 全量推送到文档服务。
+1. 库维护者把 `scripts/push-docs.mjs` 复制到自己仓库（或经 `skills/docs-gen` 安装），配环境变量（`DOCS_SERVER_URL`、`DOCS_TOKEN`、`DOCS_LIBRARY`），手动或在 CI 执行，把 Markdown 文档（含 frontmatter）经 HTTP 全量推送到文档服务。
 2. 文档服务接收推送，整库替换写入 SQLite 并重建 FTS5 全文索引。
 3. 使用者经 `npx skills add` / `npx skills update` 安装 `skills/docs-search`，配置 `DOCS_SERVER_URL`；AI 运行技能内嵌查询脚本，经 REST（`list_libraries` / `search` / `get_document`）检索文档。无需 MCP 配置。
 
@@ -24,7 +24,7 @@ docs-mcp 面向企业内部：库维护者把库文档推送到中心文档服�
 - **推送脚本（Node.js，`scripts/push-docs.mjs`）**：零依赖单文件脚本，随本仓库源码分发，用户复制到库仓库使用；环境变量配置（`DOCS_SERVER_URL` / `DOCS_TOKEN` / `DOCS_LIBRARY`）；解析 frontmatter，全量推送。
 - **客户端技能（`skills/`）**：
   - `docs-search`：通用检索技能，内嵌 Node 零依赖查询脚本（Node ≥ 26），调用服务端 REST；服务地址只读 `DOCS_SERVER_URL`。
-  - `docs-mcp`：库维护者接入技能（安装推送脚本、文档标准、执行推送）；不承担检索。
+  - `docs-gen`：库文档生成技能（只服务库：文档标准、安装推送脚本、执行推送）；不承担检索。
 
 进程边界：推送脚本 →（HTTP）→ 文档服务 ←（HTTP REST）← Agent Skill 查询脚本（使用者本机 agent 宿主）。
 
